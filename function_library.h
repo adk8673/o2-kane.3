@@ -13,5 +13,5 @@ key_t getKey(int);
 void* getExistingSharedMemory(int, const char *);
 void deallocateSharedMemory(int, const char *);
 int setPeriodic(double);
-//void process(const int, const int, int*, int*);
+int allocateSharedMemory(int, char*);
 #endif

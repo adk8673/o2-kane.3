@@ -133,6 +133,19 @@ key_t getKey(int id)
         return key;
 }
 
+int allocateSharedMemory(int id, char* processName)
+{
+	const int memFlags = (0777 | IPC_CREAT);	
+	int shmid = 0;
+	key_t key= getKey(id);
+	if ((shmid = shmget(key, sizeof(int), memFlags)) == -1)
+	{
+		writeError("Failed to allocated shared memory for key", processName);
+	}
+
+	return shmid;
+}	
+
 void* getExistingSharedMemory(int id, const char* processName)
 {
 	key_t key = getKey(id);
@@ -182,42 +195,4 @@ int setPeriodic(double sec)
 	return timer_settime(timerid, 0, &value, NULL);
 }
 
-/*
-void process(const int i, const int n, int* turn, int* flag)
-{
-	int j;
-	do 
-	{
-		do
-		{
-			flag[i] = (int)want_in;
-			j = *turn;
-			while (j != i)
-				j = (flag[j] != idle) ? *turn : (j + 1) % n;
 
-			// declare intention to enter critical section
-			flag[i] = in_cs;
-
-			// check that no one else is in the critical section
-			for (j = 0; j < n; j++)
-				if ((j != i) && (flag[j] == in_cs))
-					break;
-		} while ((j < n) || (*turn != i && flag[*turn] != idle));
-		
-		// Assign turn to self and enter critical section
-		*turn = i;
-		
-		sleep(1);
-
-		//Exit section
-		j = (*turn + 1) % n;
-		while (flag[j] == idle)
-		{
-			j = (j + 1) % n;
-		}
-		
-		//Assign turn to next waiting process; change own flag to idle 
-		*turn = j; flag[i] = idle;
-		sleep(2);
-	}while(1); 
-}*/
