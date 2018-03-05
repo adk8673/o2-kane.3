@@ -12,6 +12,7 @@
 #include <sys/types.h>
 #include <sys/ipc.h>
 #include <sys/shm.h>
+#include <sys/msg.h>
 #include <time.h>
 #include <signal.h>
 #include "function_library.h"
@@ -133,11 +134,11 @@ key_t getKey(int id)
         return key;
 }
 
-int allocateSharedMemory(int id, char* processName)
+int allocateSharedMemory(int id, const char* processName)
 {
 	const int memFlags = (0777 | IPC_CREAT);	
 	int shmid = 0;
-	key_t key= getKey(id);
+	key_t key = getKey(id);
 	if ((shmid = shmget(key, sizeof(int), memFlags)) == -1)
 	{
 		writeError("Failed to allocated shared memory for key", processName);
@@ -145,6 +146,37 @@ int allocateSharedMemory(int id, char* processName)
 
 	return shmid;
 }	
+
+int allocateMessageQueue(int id, const char* processName)
+{
+	const int msgFlags = (0777 | IPC_CREAT);
+	int msgid = 0;
+	key_t key = getKey(id);
+	if ((msgid = msgget(key, msgFlags)) == -1)
+	{
+		writeError("Failed to allocate message queue for key", processName);
+	}
+
+	return msgid;
+}
+
+int getExistingMessageQueue(int id, const char* processName)
+{
+	const int msgFlags = (0777);
+	int msgid = 0;
+	key_t key = getKey(id);
+	if ((msgid = msgget(key, msgFlags)) == -1)
+	{
+		writeError("Failed to get existing message queue for key", processName);
+	}
+	
+	return msgid;
+}
+void deallocateMessageQueue(int msgID, const char* processName)
+{
+	if(msgctl(msgID, IPC_RMID, NULL) == -1)
+		writeError("Failed to deallocate message queue", processName);
+}
 
 void* getExistingSharedMemory(int id, const char* processName)
 {

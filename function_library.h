@@ -13,5 +13,12 @@ key_t getKey(int);
 void* getExistingSharedMemory(int, const char *);
 void deallocateSharedMemory(int, const char *);
 int setPeriodic(double);
-int allocateSharedMemory(int, char*);
+int allocateSharedMemory(int, const char*);
+int allocateMessageQueue(int, const char*);
+int getExistingMessageQueue(int, const char*);
+
+struct msgbuf {
+	long mtype;
+	char mText[50];
+};
 #endif
