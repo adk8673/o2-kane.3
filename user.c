@@ -14,6 +14,7 @@
 #include<time.h>
 #include"function_library.h"
 #include"oss_constants.h"
+#define MAX_SIZE 4096
 
 int main(int argc, char* argv[])
 {
@@ -30,46 +31,65 @@ int main(int argc, char* argv[])
 	int* seconds = getExistingSharedMemory(INT_SECONDS_KEY, argv[0]);
 	int* nanoSeconds = getExistingSharedMemory(INT_NANO_SECONDS_KEY, argv[0]);
 	int msgCriticalSectionId = getExistingMessageQueue(INT_CRITICAL_MESSAGE, argv[0]);
+	if (msgCriticalSectionId == -1)
+	{
+		writeError("Failed to get message queue for critical section", argv[0]);
+	}
+	
 	int msgSendId = getExistingMessageQueue(INT_COMMUNICATION_MESSAGE, argv[0]);
+	if (msgSendId == -1)
+	{
+		writeError("Failed to get message queue for communication to oss", argv[0]);
+	}
 
 #ifdef DEBUG_OUTPUT
 	printf("Initial Seconds value: %d\n", *seconds);
 	printf("Initial nano seconds value: %d\n", *nanoSeconds);
 #endif
-
+	
 	// Objects to hold messages, though critical second sends no real info beyond
 	// the presence of a message in the queue	
 	struct msgbuf buf;
 	struct msgbuf crit;
 
-	// Make sure we are the only one trying to read the seconds/nanoseconds
-	msgrcv(msgCriticalSectionId, &crit, sizeof(crit), 1, 0);
-
-	// Create initilization message and send it to parent
-	snprintf(buf.mText, "Creating new child pid %d at my time %d.%d\n", getpid(), *seconds, *nanoSeconds);
-	buf.mtype = 2;
-	msgsnd(msgSendId, &buf, sizeof(buf), 0);
-	
-	// Signal that we are leaving critical section
-	crit.mtype = 1;	
-	msgsnd(msgCriticalSectionId, &crit, sizeof(crit), 0);
-
 	// Continually try to enter critical section and "progress" through child process 
-	while(nanoSecondsRan < nanoSeocndsToRun)
+	while(1)
 	{
 		// Try to enter critical section and then block until it's available
-		msgrcv(msgCriticalSectionId, &crit, sizeof(crit), 0);
-
+		if (msgrcv(msgCriticalSectionId, &crit, MAX_SIZE, 0) == -1)
+		{
+			writeError("Failed to receive critical section message", argv[0]);
+		}
+		
 		// Generate an increment of nanoseconds of "work" to do
 		int nanoSecondsToWork = rand() % 10000;
 		
-		if (nanoSecondsToWork + nanSecondsRan > nanoSecondsToRun)
+		if (nanoSecondsToWork + nanoSecondsRan >= nanoSecondsToRun)
 		{
 			// We're done, finish up and send log to oss
 			nanoSecondsToWork = nanoSecondsToRun - nanoSecondsRan;
+			*nanoSeconds += nanoSecondsToWork;
+			if (*nanoSeconds >= NANO_PER_SECOND)
+			{
+				*seconds = *seconds + 1;
+				*nanoSeconds -= NANO_PER_SECOND;			
+			}
+			
+			snprintf(buf.mText, 200,  "Master: Child process %d terminated at system time %d.%d because it ran for 0.%d seconds \n", getpid(), *seconds, *nanoSeconds, nanoSecondsToRun);
+			crit.mtype = 1;
+			if (msgsnd(msgCriticalSectionId, &crit, sizeof(crit), 0) == -1)
+			{
+				writeError("Failed to give up critical section in child", argv[0]);
+			}
+			
+			break;
 		}
 		
 		nanoSecondsRan += nanoSecondsToWork;
+		
+#ifdef DEBUG_OUTPUT
+		printf("Current child %d ran nanoSeconds %d out of %d total\n", getpid(),  nanoSecondsRan, nanoSecondsToRun);
+#endif
 		*nanoSeconds += nanoSecondsToWork;
 		if (*nanoSeconds >= NANO_PER_SECOND)
 		{
@@ -77,22 +97,24 @@ int main(int argc, char* argv[])
 			*nanoSeconds -= NANO_PER_SECOND;			
 		}
 
-		if (nanoSecondsRan >= nanoSecondsToRun)
-		{
-			snprintf(buf.mText, "Child process %d terminated at system time %d.%d because it ran for 0.%d seconds \n", getpid(), *seconds, *nanoSeconds, nanoSecondsToRun);
-		}
-		else
-		{
-			snprintf(buf.mText, "Child process %d ran for %d nanoseconds\n", nanSecondsToWork;
-		}
-
-		// Send message back to oss about running time
-		msgsnd(msgSendId, &buf, sizeof(buf), 0);
 
 		crit.mtype = 1;
 		// Send message to give up control of the critical section
-		msgsnd(msgCriticalSeciontId, &crit, sizeof(crit), 0);
+		if(msgsnd(msgCriticalSectionId, &crit, sizeof(crit), 0) == -1)
+		{
+			writeError("Failed to give up critical section", argv[0]);
+		}
 	}
 
+#ifdef DEBUG_OUTPUT
+	printf("User %d is about to send message back to parent\n", getpid());
+#endif
+
+	buf.mtype = 2;
+	// Send message back to oss about running time
+	if (msgsnd(msgSendId, &buf, sizeof(buf), 0) == -1)
+	{
+		writeError("Failed to send message to parent", argv[0]);
+	}
 	return 0;
 }

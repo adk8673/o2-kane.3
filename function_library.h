@@ -19,6 +19,6 @@ int getExistingMessageQueue(int, const char*);
 
 struct msgbuf {
 	long mtype;
-	char mText[50];
+	char mText[200];
 };
 #endif

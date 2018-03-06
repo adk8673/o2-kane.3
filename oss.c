@@ -30,8 +30,11 @@ int shmidNanoSeconds;
 int msgIdCriticalSection;
 int msgIdSend;
 
+int totalNumberProcesses = 0;
 char* processName;
-
+FILE* masterLog = NULL;
+pid_t* childPids = NULL;
+  
 int main(int argc, char** argv)
 {
 	processName = argv[0];
@@ -52,12 +55,6 @@ int main(int argc, char** argv)
 	// allocate message queues
 	msgIdCriticalSection = allocateMessageQueue(INT_CRITICAL_MESSAGE, argv[0]);
 	msgIdSend = allocateMessageQueue(INT_COMMUNICATION_MESSAGE, argv[0]);
-
-	/*
-	struct msgbuf buf;
-	buf.mtype = 1;
-	msgsnd(msgIdCriticalSection, &buf, sizeof(buf), 0);
-	*/
 
 	// map to the newly allocated variables
 	int* seconds = shmat(shmidSeconds, 0, 0);
@@ -102,6 +99,7 @@ int main(int argc, char** argv)
 				break;
 		}
 	}
+	
 
 #ifdef DEBUG_OUTPUT	
 	printf("Help flag: %d\n", argFlagHelp);
@@ -118,33 +116,92 @@ int main(int argc, char** argv)
 		return 0;
 	}
 	
-	// spawn off child processes and allocate variables for chile tracking
-	pid_t* childPids = malloc(sizeof(pid_t) * numChildren);
-	int i, numProcesses = 0, totalProcessesCreated;
+	masterLog = fopen(fileName, "w");
+	struct msgbuf crit;
+	struct msgbuf buf;
+
+	// spawn off child processes and allocate variables for child tracking
+	childPids = malloc(sizeof(pid_t) * MAX_NUM_PROCESSES );
+	int i, totalProcessesCreated = 0;
 	for (i = 0; i < numChildren; ++i)
 	{
-		childPids[i] = createChildProcess("./user", argv[0]);
-		++numProcesses;
+		pid_t childpid;
+		childpid = createChildProcess("./user", argv[0]);
+		childPids[i] = childpid;
+		++totalNumberProcesses;
+
+		fprintf(masterLog, "Master: Creating child pid %d at my time %d.%d\n", childpid, *seconds, *nanoSeconds);
 	}
 
-	totalProcessesCreated = numProcesses;
-	int hitLimit = 0;	
-	while(!hitLimit)
+	// set initial access to critical section
+	crit.mtype = 1;
+	if(msgsnd(msgIdCriticalSection, &crit, sizeof(crit), 0) == -1)
 	{
-
+		writeError("Failed to initialize critical section\n", processName);
+		return -1;
 	}
+	
+	int hitLimit = 0;	
+	while(!hitLimit && totalNumberProcesses < MAX_NUM_PROCESSES )
+	{
+#ifdef DEBUG_OUTPUT
+		printf("oss waiting on message, total number of processes that have been created so far is: %d\n", totalNumberProcesses);
+#endif
+		// wait for a child process to send a message back to this process to indicate
+		if (msgrcv(msgIdSend, &buf, sizeof(buf), 2, 0)== -1)
+		{
+			writeError("Error in oss on receiving message\n", processName);
+		}
 
+#ifdef DEBUG_OUTPUT
+		printf("oss received message: %s\n", buf.mText);
+#endif
+
+		// Child proccess has terminated, need to write out to a file and increment our counter
+		// Try to enter critical section
+		printf("parent trying to enter critical section\n");
+		if (msgrcv(msgIdCriticalSection, &crit, sizeof(crit), 1, 0) == -1)
+		{
+			writeError("Failure to enter critical section\n", processName);
+		}
+
+		fprintf(masterLog, buf.mText);
+		
+		*nanoSeconds += 100;
+		if (*nanoSeconds > NANO_PER_SECOND)
+		{
+			*nanoSeconds -= NANO_PER_SECOND;
+			*seconds += 1;
+		}
+		
+		++totalNumberProcesses;
+		pid_t childPid = createChildProcess("./user", argv[0]);
+		fprintf(masterLog, "Master: Creating child pid %d at my time %d.%d\n", childPid, *seconds, *nanoSeconds);
+		childPids[totalNumberProcesses] = childPid;
+		if (*seconds >= TOTAL_SECONDS_TIME)
+		{
+			hitLimit = 1;
+		}
+
+		// Give up conrtol of critical section
+		crit.mtype = 1;
+		if (msgsnd(msgIdCriticalSection, &crit, sizeof(crit), 0) == -1)
+		{
+			writeError("Failed to sent critical section message", processName);
+		}
+	}
+	printf("outof loop\n");
 	// wait on all children before finishing
 	int status;
 	pid_t childpid;
-	while((childpid = wait(&status)) > 0)
-		--numProcesses;
+	while((childpid = wait(&status)) > 0);
 	
 	if (childPids != NULL)
 	{
 		free(childPids);
 	}
 
+	fclose(masterLog);
 	deallocateAllSharedMemory(argv[0]);
 	return 0;
 }
@@ -166,6 +223,21 @@ void signalInterruption(int signo)
 {
 	if (signo == SIGALRM || signo == SIGINT)
 	{
+		if (masterLog != NULL)
+		{
+			fclose(masterLog);
+		}
+		
+		int i;
+		for (i = 0; i < totalNumberProcesses; ++i)
+			kill (childPids[i], SIGKILL);
+
+		if (childPids != NULL)
+		{
+			free(childPids);
+		}
+		
 		deallocateAllSharedMemory(processName);
+		exit(0);
 	}	
 }
