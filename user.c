@@ -14,7 +14,6 @@
 #include<time.h>
 #include"function_library.h"
 #include"oss_constants.h"
-#define MAX_SIZE 4096
 
 int main(int argc, char* argv[])
 {
@@ -22,7 +21,7 @@ int main(int argc, char* argv[])
 	// use the pid as well so that children don't end up running with the same 
 	// random number
 	srand(getpid() * time(NULL));
-	int nanoSecondsToRun = (rand() % 1000000) + 1;
+	int nanoSecondsToRun = (rand() % 100000) + 1;
 	int nanoSecondsRan = 0;
 #ifdef DEBUG_OUTPUT
 	printf("Spawned child process %d\n", getpid());
@@ -30,19 +29,23 @@ int main(int argc, char* argv[])
 #endif
 	int* seconds = getExistingSharedMemory(INT_SECONDS_KEY, argv[0]);
 	int* nanoSeconds = getExistingSharedMemory(INT_NANO_SECONDS_KEY, argv[0]);
+	
 	int msgCriticalSectionId = getExistingMessageQueue(INT_CRITICAL_MESSAGE, argv[0]);
 	if (msgCriticalSectionId == -1)
 	{
 		writeError("Failed to get message queue for critical section", argv[0]);
+		return -1;
 	}
 	
 	int msgSendId = getExistingMessageQueue(INT_COMMUNICATION_MESSAGE, argv[0]);
 	if (msgSendId == -1)
 	{
 		writeError("Failed to get message queue for communication to oss", argv[0]);
+		return -1;
 	}
 
 #ifdef DEBUG_OUTPUT
+	printf("MSGID Critical: %d\nMSGID Send Queue: %d\n", msgCriticalSectionId, msgSendId);
 	printf("Initial Seconds value: %d\n", *seconds);
 	printf("Initial nano seconds value: %d\n", *nanoSeconds);
 #endif
@@ -51,15 +54,18 @@ int main(int argc, char* argv[])
 	// the presence of a message in the queue	
 	struct msgbuf buf;
 	struct msgbuf crit;
-
+	
 	// Continually try to enter critical section and "progress" through child process 
 	while(1)
 	{
 		// Try to enter critical section and then block until it's available
-		if (msgrcv(msgCriticalSectionId, &crit, MAX_SIZE, 0) == -1)
+		printf("msgid critical section: %d\n", msgCriticalSectionId);
+		int bytesRead = 0;
+		if ((bytesRead = msgrcv(msgCriticalSectionId, &crit, sizeof(crit), 1)) == -1)
 		{
 			writeError("Failed to receive critical section message", argv[0]);
 		}
+		printf("bytes read: %d\n", bytesRead);
 		
 		// Generate an increment of nanoseconds of "work" to do
 		int nanoSecondsToWork = rand() % 10000;
@@ -116,5 +122,6 @@ int main(int argc, char* argv[])
 	{
 		writeError("Failed to send message to parent", argv[0]);
 	}
+	
 	return 0;
 }

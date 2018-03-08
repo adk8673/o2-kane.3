@@ -30,7 +30,7 @@ int shmidNanoSeconds;
 int msgIdCriticalSection;
 int msgIdSend;
 
-int totalNumberProcesses = 0;
+int totalProcessesCreated = 0;
 char* processName;
 FILE* masterLog = NULL;
 pid_t* childPids = NULL;
@@ -56,6 +56,7 @@ int main(int argc, char** argv)
 	msgIdCriticalSection = allocateMessageQueue(INT_CRITICAL_MESSAGE, argv[0]);
 	msgIdSend = allocateMessageQueue(INT_COMMUNICATION_MESSAGE, argv[0]);
 
+	printf("MSGID crit: %d\nMSGID message: %d\n", msgIdCriticalSection, msgIdSend);
 	// map to the newly allocated variables
 	int* seconds = shmat(shmidSeconds, 0, 0);
 	int* nanoSeconds = shmat(shmidNanoSeconds, 0, 0);
@@ -100,14 +101,6 @@ int main(int argc, char** argv)
 		}
 	}
 	
-
-#ifdef DEBUG_OUTPUT	
-	printf("Help flag: %d\n", argFlagHelp);
-	printf("Filename from command line: %s\n",fileName);
-	printf("Number of slave processes from command line: %d\n", numChildren);
-	printf("Amount of time to run before terminating: %d\n", timeToTerminate);
-#endif
-
 	setPeriodic(timeToTerminate);
 
 	// if passed in a help flag, we don't want to do anything else - just exit
@@ -128,7 +121,7 @@ int main(int argc, char** argv)
 		pid_t childpid;
 		childpid = createChildProcess("./user", argv[0]);
 		childPids[i] = childpid;
-		++totalNumberProcesses;
+		++totalProcessesCreated;
 
 		fprintf(masterLog, "Master: Creating child pid %d at my time %d.%d\n", childpid, *seconds, *nanoSeconds);
 	}
@@ -142,13 +135,14 @@ int main(int argc, char** argv)
 	}
 	
 	int hitLimit = 0;	
-	while(!hitLimit && totalNumberProcesses < MAX_NUM_PROCESSES )
+	while(!hitLimit && totalProcessesCreated < MAX_NUM_PROCESSES )
 	{
 #ifdef DEBUG_OUTPUT
-		printf("oss waiting on message, total number of processes that have been created so far is: %d\n", totalNumberProcesses);
+		printf("oss waiting on message, total number of processes that have been created so far is: %d\n", totalProcessesCreated);
 #endif
+		int bytesReceived = 0;
 		// wait for a child process to send a message back to this process to indicate
-		if (msgrcv(msgIdSend, &buf, sizeof(buf), 2, 0)== -1)
+		if ((bytesReceived = msgrcv(msgIdSend, &buf, sizeof(buf), 2, 0))== -1)
 		{
 			writeError("Error in oss on receiving message\n", processName);
 		}
@@ -159,12 +153,11 @@ int main(int argc, char** argv)
 
 		// Child proccess has terminated, need to write out to a file and increment our counter
 		// Try to enter critical section
-		printf("parent trying to enter critical section\n");
 		if (msgrcv(msgIdCriticalSection, &crit, sizeof(crit), 1, 0) == -1)
 		{
 			writeError("Failure to enter critical section\n", processName);
 		}
-
+	
 		fprintf(masterLog, buf.mText);
 		
 		*nanoSeconds += 100;
@@ -174,14 +167,20 @@ int main(int argc, char** argv)
 			*seconds += 1;
 		}
 		
-		++totalNumberProcesses;
-		pid_t childPid = createChildProcess("./user", argv[0]);
-		fprintf(masterLog, "Master: Creating child pid %d at my time %d.%d\n", childPid, *seconds, *nanoSeconds);
-		childPids[totalNumberProcesses] = childPid;
+		++totalProcessesCreated;
 		if (*seconds >= TOTAL_SECONDS_TIME)
 		{
 			hitLimit = 1;
+			printf("hitlimit\n");
 		}
+		else
+		{
+			pid_t childPid = createChildProcess("./user", argv[0]);
+			fprintf(masterLog, "Master: Creating child pid %d at my time %d.%d\n", childPid, *seconds, *nanoSeconds);
+			printf("Child was created %d\n", childPid);
+			childPids[totalProcessesCreated] = childPid;
+		}
+		
 
 		// Give up conrtol of critical section
 		crit.mtype = 1;
@@ -190,25 +189,26 @@ int main(int argc, char** argv)
 			writeError("Failed to sent critical section message", processName);
 		}
 	}
-	printf("outof loop\n");
+
 	// wait on all children before finishing
 	int status;
 	pid_t childpid;
 	while((childpid = wait(&status)) > 0);
-	
+	printf("waiting all children\n");
 	if (childPids != NULL)
 	{
 		free(childPids);
 	}
-
-	fclose(masterLog);
+	
 	deallocateAllSharedMemory(argv[0]);
+	fclose(masterLog);
+	
 	return 0;
 }
 
 void displayHelp()
 {
-
+	printf("oss: Operating system simulator\nOptions:\n-s x\tNumber of concurrent child processes to spawn\n-l filename\tFilename to output log to\n-t z\tNumber of seconds to run before forcing exit\n-h\tDisplay help options\n");
 }
 
 void deallocateAllSharedMemory(char* processName)
@@ -223,21 +223,25 @@ void signalInterruption(int signo)
 {
 	if (signo == SIGALRM || signo == SIGINT)
 	{
+		deallocateAllSharedMemory(processName);
+		
 		if (masterLog != NULL)
 		{
 			fclose(masterLog);
 		}
 		
 		int i;
-		for (i = 0; i < totalNumberProcesses; ++i)
+		for (i = 0; i < totalProcessesCreated; ++i)
+		{
 			kill (childPids[i], SIGKILL);
-
+		}
+		
 		if (childPids != NULL)
 		{
 			free(childPids);
 		}
 		
-		deallocateAllSharedMemory(processName);
+	
 		exit(0);
 	}	
 }

@@ -13,6 +13,7 @@
 #include <sys/ipc.h>
 #include <sys/shm.h>
 #include <sys/msg.h>
+#include <sys/stat.h>
 #include <time.h>
 #include <signal.h>
 #include "function_library.h"
@@ -149,7 +150,7 @@ int allocateSharedMemory(int id, const char* processName)
 
 int allocateMessageQueue(int id, const char* processName)
 {
-	const int msgFlags = (0777 | IPC_CREAT);
+	const int msgFlags = (S_IRUSR | S_IWUSR  | IPC_CREAT);
 	int msgid = 0;
 	key_t key = getKey(id);
 	if ((msgid = msgget(key, msgFlags)) == -1)
@@ -162,7 +163,7 @@ int allocateMessageQueue(int id, const char* processName)
 
 int getExistingMessageQueue(int id, const char* processName)
 {
-	const int msgFlags = (0777);
+	const int msgFlags = (S_IRUSR | S_IWUSR);
 	int msgid = 0;
 	key_t key = getKey(id);
 	if ((msgid = msgget(key, msgFlags)) == -1)
