@@ -59,13 +59,11 @@ int main(int argc, char* argv[])
 	while(1)
 	{
 		// Try to enter critical section and then block until it's available
-		printf("msgid critical section: %d\n", msgCriticalSectionId);
 		int bytesRead = 0;
 		if ((bytesRead = msgrcv(msgCriticalSectionId, &crit, sizeof(crit), 1)) == -1)
 		{
 			writeError("Failed to receive critical section message", argv[0]);
 		}
-		printf("bytes read: %d\n", bytesRead);
 		
 		// Generate an increment of nanoseconds of "work" to do
 		int nanoSecondsToWork = rand() % 10000;

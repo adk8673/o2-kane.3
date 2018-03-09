@@ -171,7 +171,6 @@ int main(int argc, char** argv)
 		if (*seconds >= TOTAL_SECONDS_TIME)
 		{
 			hitLimit = 1;
-			printf("hitlimit\n");
 		}
 		else
 		{

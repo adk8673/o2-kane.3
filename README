@@ -4,6 +4,11 @@ Project 3
 
 Code for project 3, the initial iteration of an operating system simulator.  
 
+This project will initial load the executable oss (callable by ./oss, with paremeters -s for number of maximum children, -t for time (real time) until failing, and -l to modify the file the log is written too).  oss will then spawn off children which run for a set amount of system time, stored as integers in shared memory.  
+
+oss will receive messages back from these children after they finish running.  It will then remove all shared memory and other ipc objects.    Access to the internal clock is protected (in theory), by access to a message queue, which should only have one message in it at a time.
+
+Right now, the project is having some difficulty guaranteeing this concurrency and sometimes has errors related to the message queues.  It should still manage to close itself after a set time increment and deallocate all ipc objects.
 
 Code is hosted in a git repository stored on github.  The commit log is located at:
 https://github.com/adk8673/o2-kane.3/commits/master
